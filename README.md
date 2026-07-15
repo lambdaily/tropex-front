@@ -1,20 +1,11 @@
-# Frontend - Next.js
 
-Next.js 15 frontend.
+  # Tropero Copy V3
 
-## Desarrollo local
+  This is a code bundle for Tropero Copy V3. The original project is available at https://www.figma.com/design/fVrgkzlhez2BTIo6vZ9s3E/Tropero-Copy-V3.
 
-```bash
-npm install
-npm run dev
-```
+  ## Running the code
 
-## Variables de entorno
+  Run `npm i` to install the dependencies.
 
-Copia `.env.example` a `.env.local` y ajusta los valores.
-
-## Deploy en Coolify
-
-1. Conecta este repo a Coolify como "Application"
-2. Coolify detectará el Dockerfile automáticamente
-3. Configura `NEXT_PUBLIC_API_URL` apuntando al dominio del backend
+  Run `npm run dev` to start the development server.
+  

@@ -1,0 +1,537 @@
+{
+  "info": {
+    "name": "TROPEX Backend API",
+    "description": "Colección completa de endpoints del backend TROPEX (auth, establishments, payments, uploads, user-documents, user-change-requests)",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://django-backend-production-bd80.up.railway.app",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "upload_url",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "public_url",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "object_key",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "document_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "change_request_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login (obtiene access_token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.tokens && json.tokens.access) {",
+                  "    pm.collectionVariables.set('access_token', json.tokens.access);",
+                  "    console.log('✓ access_token guardado');",
+                  "  } else {",
+                  "    console.log('✗ No se encontró tokens.access en la respuesta');",
+                  "  }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"pablo.espinoza.mail@gmail.com\",\n  \"password\": \"@Soyocontortilla2027\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login", ""]
+            }
+          }
+        },
+        {
+          "name": "Register (crea usuario de prueba)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"nuevo@tropex.com\",\n  \"password\": \"testpass123\",\n  \"password_confirm\": \"testpass123\",\n  \"first_name\": \"Nuevo\",\n  \"last_name\": \"Usuario\",\n  \"phone\": \"+595981000000\",\n  \"role_slug\": \"ganadero\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register", ""]
+            }
+          }
+        },
+        {
+          "name": "GET /api/auth/me/ (incluye uploaded_documents y establishments)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "me", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Documents (UserDocument)",
+      "item": [
+        {
+          "name": "1. GET /api/user-documents/ (listar mis documentos)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.results && json.results.length > 0) {",
+                  "    const firstDoc = json.results[0];",
+                  "    pm.collectionVariables.set('document_id', String(firstDoc.id));",
+                  "    console.log('✓ document_id guardado:', firstDoc.id);",
+                  "    console.log('Total documentos:', json.count);",
+                  "  } else {",
+                  "    console.log('No hay documentos para guardar ID');",
+                  "  }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/user-documents/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-documents", ""]
+            }
+          }
+        },
+        {
+          "name": "2. POST /api/user-documents/ (crear metadata después de subir a R2)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.id) {",
+                  "    pm.collectionVariables.set('document_id', String(json.id));",
+                  "    console.log('✓ Documento creado con id:', json.id);",
+                  "  }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_type\": \"ruc\",\n  \"object_key\": \"documents/ruc/24/test-key.png\",\n  \"public_url\": \"pub-df2468833a5d46558251482003da7678.r2.dev/test.png\",\n  \"original_filename\": \"test.png\",\n  \"file_size\": 254259,\n  \"content_type\": \"image/png\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/user-documents/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-documents", ""]
+            }
+          }
+        },
+        {
+          "name": "3. GET /api/user-documents/{id}/ (detalle)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/user-documents/{{document_id}}/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-documents", "{{document_id}}", ""]
+            }
+          }
+        },
+        {
+          "name": "4. PATCH /api/user-documents/{id}/ (cambiar status - admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\",\n  \"rejection_reason\": \"\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/user-documents/{{document_id}}/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-documents", "{{document_id}}", ""]
+            }
+          }
+        },
+        {
+          "name": "5. DELETE /api/user-documents/{id}/ (eliminar)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/user-documents/{{document_id}}/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-documents", "{{document_id}}", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "User Change Requests (AccountChangeRequest)",
+      "item": [
+        {
+          "name": "1. GET /api/user-change-requests/ (listar mis solicitudes)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.results && json.results.length > 0) {",
+                  "    const firstReq = json.results[0];",
+                  "    pm.collectionVariables.set('change_request_id', String(firstReq.id));",
+                  "    console.log('✓ change_request_id guardado:', firstReq.id);",
+                  "    console.log('Total solicitudes:', json.count);",
+                  "  } else {",
+                  "    console.log('No hay solicitudes para guardar ID');",
+                  "  }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/user-change-requests/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-change-requests", ""]
+            }
+          }
+        },
+        {
+          "name": "2. POST /api/user-change-requests/ (crear solicitud de cambio de datos legales)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"change_type\": \"datos_legales\",\n  \"payload\": {\n    \"field\": \"phone\",\n    \"old\": \"123413\",\n    \"new\": \"+595981234567\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/user-change-requests/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-change-requests", ""]
+            }
+          }
+        },
+        {
+          "name": "3. POST /api/user-change-requests/ (crear solicitud de documento)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"change_type\": \"documentos\",\n  \"payload\": {\n    \"document\": \"ruc\",\n    \"reason\": \"Actualización de RUC\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/user-change-requests/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-change-requests", ""]
+            }
+          }
+        },
+        {
+          "name": "4. POST /api/user-change-requests/ (crear solicitud de alta de vehículo)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"change_type\": \"alta_camion\",\n  \"payload\": {\n    \"plate\": \"ABC 1234\",\n    \"model\": \"Mercedes Benz\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/user-change-requests/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "user-change-requests", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Cloudflare R2 Uploads",
+      "item": [
+        {
+          "name": "1. POST /api/uploads/presigned-url/ (pedir URL pre-firmada)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.upload_url) {",
+                  "    pm.collectionVariables.set('upload_url', json.upload_url);",
+                  "    pm.collectionVariables.set('public_url', json.public_url);",
+                  "    pm.collectionVariables.set('object_key', json.object_key);",
+                  "    console.log('✓ URLs guardadas');",
+                  "    console.log('Signature length:', json.upload_url.split('X-Amz-Signature=')[1]?.split('&')[0]?.length, '(debe ser 64)');",
+                  "  } else {",
+                  "    console.log('✗ No se encontraron URLs en la respuesta');",
+                  "  }"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"document_type\": \"access_map\",\n  \"filename\": \"mapa-test.jpg\",\n  \"content_type\": \"image/jpeg\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/uploads/presigned-url/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "uploads", "presigned-url", ""]
+            }
+          }
+        },
+        {
+          "name": "2. PUT {{upload_url}} (subir archivo a R2)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "image/jpeg"
+              }
+            ],
+            "body": {
+              "mode": "file",
+              "file": {}
+            },
+            "url": {
+              "raw": "{{upload_url}}",
+              "host": ["{{upload_url}}"],
+              "path": []
+            }
+          }
+        },
+        {
+          "name": "3. GET {{public_url}} (verificar archivo)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{public_url}}",
+              "host": ["{{public_url}}"],
+              "path": []
+            }
+          }
+        },
+        {
+          "name": "4. DELETE /api/uploads/object/ (eliminar - solo admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object_key\": \"{{object_key}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/uploads/object/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "uploads", "object", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Establishments (SENACSA)",
+      "item": [
+        {
+          "name": "GET /api/senacsa/establishments/ (listar)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/senacsa/establishments/?search=",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "senacsa", "establishments", ""]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments (Financial Institutions)",
+      "item": [
+        {
+          "name": "GET /api/payment/financial-institutions/ (listar todas)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/payment/financial-institutions/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payment", "financial-institutions", ""]
+            }
+          }
+        },
+        {
+          "name": "GET /api/payment/financial-institutions/?type=banco (filtrar por tipo)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/payment/financial-institutions/?type=banco",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "payment", "financial-institutions", ""],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "banco"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users (Admin)",
+      "item": [
+        {
+          "name": "GET /api/users/ (listar todos)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", ""]
+            }
+          }
+        },
+        {
+          "name": "GET /api/users/{id}/ (detalle)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/users/1/",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "users", "1", ""]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
