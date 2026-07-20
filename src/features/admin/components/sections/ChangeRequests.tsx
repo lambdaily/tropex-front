@@ -125,7 +125,7 @@ export function ChangeRequestsSection() {
   };
 
   const handleReject = () => {
-    if (selected) {
+    if (selected && rejectionReason.trim()) {
       rejectMutation.mutate(selected.id);
     }
   };
@@ -498,7 +498,7 @@ function RejectModal({
           <Btn variant="ghost" onClick={onCancel} disabled={isRejecting}>
             Cancelar
           </Btn>
-          <Btn variant="danger" onClick={onConfirm} disabled={isRejecting}>
+          <Btn variant="danger" onClick={onConfirm} disabled={isRejecting || !reason.trim()}>
             {isRejecting ? "Rechazando..." : "Confirmar rechazo"}
           </Btn>
         </div>

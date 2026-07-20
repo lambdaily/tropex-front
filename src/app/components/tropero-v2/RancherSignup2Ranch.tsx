@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import {MapPin, Upload, FileText, X} from 'lucide-react';
+import {MapPin, Upload, FileText, X, CheckCircle, XCircle, Loader2} from 'lucide-react';
 import { AutocompleteInput, AutocompleteOption } from '../ui/autocomplete-input';
 import { establishmentsData } from '../../data/establishments-data';
+import { authApi } from '@/features/auth/api/authApi';
 
 import type { SignupData } from '../../types/signup';
 import { SignupHeader } from './SignupHeader';
@@ -24,6 +25,15 @@ export function RancherSignup2Ranch({ onNext, onSkip, onBack }: RancherSignup2Pr
   });
 
   const [accessMap, setAccessMap] = useState<File | null>(null);
+  const [rucValidation, setRucValidation] = useState<{
+    isValid: boolean | null;
+    isLoading: boolean;
+    error: string | null;
+  }>({
+    isValid: null,
+    isLoading: false,
+    error: null,
+  });
 
   // Memoize autocomplete options to prevent re-creating on every render
   const establishmentOptions: AutocompleteOption[] = useMemo(
@@ -44,14 +54,53 @@ export function RancherSignup2Ranch({ onNext, onSkip, onBack }: RancherSignup2Pr
     });
   };
 
-  // Auto-fill razón social when specific RUC is entered
+  // Validate RUC when it changes
   useEffect(() => {
-    if (formData.ruc === '80069100-8' || formData.ruc === '800691008') {
-      setFormData((prev) => ({
-        ...prev,
-        razonSocial: 'GANADERA LA JOYA SOCIEDAD ANONIMA',
-      }));
-    }
+    const validateRuc = async () => {
+      const ruc = formData.ruc.trim();
+      
+      if (!ruc) {
+        setRucValidation({ isValid: null, isLoading: false, error: null });
+        return;
+      }
+
+      if (ruc.length < 6) {
+        setRucValidation({ isValid: false, isLoading: false, error: 'RUC debe tener al menos 6 dígitos' });
+        return;
+      }
+
+      setRucValidation({ isValid: null, isLoading: true, error: null });
+
+      try {
+        const result = await authApi.verifyRuc(ruc);
+        
+        if (result.valid && result.data) {
+          setRucValidation({ isValid: true, isLoading: false, error: null });
+          // Auto-fill razón social if not already filled
+          if (!formData.razonSocial && result.data.razon_social) {
+            setFormData((prev) => ({
+              ...prev,
+              razonSocial: result.data!.razon_social,
+            }));
+          }
+        } else {
+          setRucValidation({ 
+            isValid: false, 
+            isLoading: false, 
+            error: result.error || 'RUC no válido' 
+          });
+        }
+      } catch (error) {
+        setRucValidation({ 
+          isValid: false, 
+          isLoading: false, 
+          error: 'Error al validar RUC. Intentá de nuevo.' 
+        });
+      }
+    };
+
+    const timeoutId = setTimeout(validateRuc, 800);
+    return () => clearTimeout(timeoutId);
   }, [formData.ruc]);
 
   const handleAccessMapUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,6 +116,13 @@ export function RancherSignup2Ranch({ onNext, onSkip, onBack }: RancherSignup2Pr
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Validate RUC before proceeding
+    if (!rucValidation.isValid) {
+      alert('Por favor, ingresá un RUC válido antes de continuar.');
+      return;
+    }
+    
     onNext({ ...formData, accessMap });
   };
 
@@ -126,14 +182,37 @@ export function RancherSignup2Ranch({ onNext, onSkip, onBack }: RancherSignup2Pr
                   RUC
                   <span className="text-red-500 ml-1">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={formData.ruc}
-                  onChange={(e) => setFormData({ ...formData, ruc: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1E5126] focus:border-[#1E5126]"
-                  placeholder="80129693-5"
-                  required
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formData.ruc}
+                    onChange={(e) => setFormData({ ...formData, ruc: e.target.value })}
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#1E5126] focus:border-[#1E5126] ${
+                      rucValidation.isValid === true
+                        ? 'border-green-500'
+                        : rucValidation.isValid === false
+                        ? 'border-red-500'
+                        : 'border-gray-300'
+                    }`}
+                    placeholder="80129693-5"
+                    required
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {rucValidation.isLoading ? (
+                      <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                    ) : rucValidation.isValid === true ? (
+                      <CheckCircle className="w-5 h-5 text-green-500" />
+                    ) : rucValidation.isValid === false ? (
+                      <XCircle className="w-5 h-5 text-red-500" />
+                    ) : null}
+                  </div>
+                </div>
+                {rucValidation.error && (
+                  <p className="mt-1 text-sm text-red-600">{rucValidation.error}</p>
+                )}
+                {rucValidation.isValid === true && (
+                  <p className="mt-1 text-sm text-green-600">RUC válido</p>
+                )}
               </div>
 
               <div>

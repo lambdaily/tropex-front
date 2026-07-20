@@ -1,7 +1,43 @@
 import { apiClient } from '@/shared/api/apiClient';
-import type { MyEstablishment, UpdateEstablishmentPayload } from '../types/establishment.types';
+import type { CreateEstablishmentRequest, MyEstablishment, UpdateEstablishmentPayload } from '../types/establishment.types';
 
 const SENSITIVE_FIELDS = ['ruc', 'owner_name', 'department', 'district'] as const;
+type SensitiveField = typeof SENSITIVE_FIELDS[number];
+
+interface SensitiveChange {
+  field: SensitiveField;
+  old: string;
+  new: string;
+}
+
+function normalizeValue(value: unknown): string {
+  return value == null ? '' : String(value).trim();
+}
+
+function buildChangeRequestPayload(establishmentId: number, change: SensitiveChange): Record<string, unknown> {
+  // `field/old/new` is the canonical API shape. The *_old/*_new aliases keep
+  // compatibility with the admin UI and older approval handlers.
+  return {
+    establishment_id: establishmentId,
+    field: change.field,
+    old: change.old,
+    new: change.new,
+    [`${change.field}_old`]: change.old,
+    [`${change.field}_new`]: change.new,
+  };
+}
+
+async function submitSensitiveChangeRequests(
+  establishmentId: number,
+  changes: SensitiveChange[],
+): Promise<void> {
+  for (const change of changes) {
+    await apiClient.post('/user-change-requests/', {
+      change_type: 'establecimiento',
+      payload: buildChangeRequestPayload(establishmentId, change),
+    });
+  }
+}
 
 export const myEstablishmentApi = {
   list: async (): Promise<MyEstablishment[]> => {
@@ -23,6 +59,21 @@ export const myEstablishmentApi = {
     }));
   },
 
+  create: async ({ data, sensitiveData }: CreateEstablishmentRequest): Promise<MyEstablishment> => {
+    const establishment = await apiClient.post<MyEstablishment>('/users/establishments/', data);
+    const changes = SENSITIVE_FIELDS
+      .map((field) => ({
+        field,
+        old: '',
+        new: normalizeValue(sensitiveData[field]),
+      }))
+      .filter((change) => Boolean(change.new));
+
+    await submitSensitiveChangeRequests(establishment.id, changes);
+
+    return establishment;
+  },
+
   update: async (
     id: number,
     data: UpdateEstablishmentPayload,
@@ -35,8 +86,8 @@ export const myEstablishmentApi = {
       if (value === undefined) continue;
 
       const currentValue = (currentEstablishment as unknown as Record<string, unknown>)[key];
-      const currentStr = currentValue != null ? String(currentValue) : '';
-      const newStr = String(value);
+      const currentStr = normalizeValue(currentValue);
+      const newStr = normalizeValue(value);
 
       if (SENSITIVE_FIELDS.includes(key as typeof SENSITIVE_FIELDS[number])) {
         if (currentStr !== newStr) {
@@ -50,28 +101,19 @@ export const myEstablishmentApi = {
     }
 
     let updated = false;
-    let hasChangeRequest = false;
 
     if (Object.keys(directChanges).length > 0) {
       await apiClient.patch<MyEstablishment>(`/users/establishments/${id}/`, directChanges);
       updated = true;
     }
 
-    if (Object.keys(sensitiveChanges).length > 0) {
-      const payload: Record<string, unknown> = { establishment_id: id };
+    const changes = Object.entries(sensitiveChanges).map(([field, change]) => ({
+      field: field as SensitiveField,
+      old: change.old,
+      new: change.new,
+    }));
+    await submitSensitiveChangeRequests(id, changes);
 
-      for (const [field, change] of Object.entries(sensitiveChanges)) {
-        payload[`${field}_old`] = change.old;
-        payload[`${field}_new`] = change.new;
-      }
-
-      await apiClient.post('/user-change-requests/', {
-        change_type: 'establecimiento',
-        payload,
-      });
-      hasChangeRequest = true;
-    }
-
-    return { hasChangeRequest, updated };
+    return { hasChangeRequest: changes.length > 0, updated };
   },
 };

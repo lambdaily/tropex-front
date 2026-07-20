@@ -1,12 +1,14 @@
-import { AlertCircle, Upload, FileText, X } from 'lucide-react';
+import { useState } from 'react';
+import { AlertCircle, Upload, FileText, X, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { AutocompleteInput } from '@/app/components/ui/autocomplete-input';
 import { LocationPicker } from './LocationPicker';
 import { AccessMapUpload } from './AccessMapUpload';
 import { useEstablishmentForm } from '../hooks/useEstablishmentForm';
+import { authApi } from '@/features/auth/api/authApi';
 import logoHorizontalBlanco from '@/assets/logo_horizontal_blanco.png';
 import type { EstablishmentFormProps, EstablishmentFormErrors } from '../types/rancher-signup.types';
 
-export function EstablishmentForm({ onNext, onSkip, onBack, initialData, signupError }: EstablishmentFormProps) {
+export function EstablishmentForm({ onNext, onBack, initialData, signupError }: EstablishmentFormProps) {
   const {
     formData,
     setFormData,
@@ -30,7 +32,7 @@ export function EstablishmentForm({ onNext, onSkip, onBack, initialData, signupE
 
   return (
     <div className="min-h-screen bg-[#F6F1E8]">
-      <FormHeader onBack={onBack} onSkip={onSkip} />
+      <FormHeader onBack={onBack} />
 
       <main className="px-4 py-6 md:px-6 md:py-12">
         <div className="max-w-3xl mx-auto">
@@ -106,7 +108,7 @@ export function EstablishmentForm({ onNext, onSkip, onBack, initialData, signupE
 
 /* ─── Sub-components ─── */
 
-function FormHeader({ onBack, onSkip }: { onBack: () => void; onSkip: () => void }) {
+function FormHeader({ onBack }: { onBack: () => void }) {
   return (
     <>
       <header className="bg-[#1E5126] px-4 py-3 md:px-6 md:py-4">
@@ -119,12 +121,6 @@ function FormHeader({ onBack, onSkip }: { onBack: () => void; onSkip: () => void
               <img src={logoHorizontalBlanco} alt="TROPEX" className="h-12 w-auto" />
             </div>
           </div>
-          <button
-            onClick={onSkip}
-            className="px-3 py-1.5 text-sm font-medium rounded-lg bg-white/15 text-white"
-          >
-            Omitir este paso
-          </button>
         </div>
       </header>
 
@@ -183,9 +179,82 @@ function RucAndReasonFields({
   hasError: (field: string) => boolean;
   errors: EstablishmentFormErrors;
 }) {
+  const [rucValidation, setRucValidation] = useState<{
+    isValid: boolean | null;
+    isLoading: boolean;
+    error: string | null;
+  }>({
+    isValid: null,
+    isLoading: false,
+    error: null,
+  });
+
+  const handleManualVerify = async () => {
+    const rucToValidate = ruc.trim();
+    
+    if (!rucToValidate) {
+      setRucValidation({ 
+        isValid: false, 
+        isLoading: false, 
+        error: 'Ingresá un RUC primero'
+      });
+      return;
+    }
+
+    // Count only digits for minimum length check
+    const digitCount = rucToValidate.replace(/\D/g, '').length;
+    
+    if (digitCount < 6) {
+      setRucValidation({ 
+        isValid: false, 
+        isLoading: false, 
+        error: 'RUC debe tener al menos 6 dígitos'
+      });
+      return;
+    }
+
+    setRucValidation({ 
+      isValid: null, 
+      isLoading: true, 
+      error: null
+    });
+
+    try {
+      // Send RUC exactly as user typed it (with hyphen)
+      const result = await authApi.verifyRucReal(rucToValidate);
+      
+      if (result.valid && result.data) {
+        setRucValidation({ 
+          isValid: true, 
+          isLoading: false, 
+          error: null
+        });
+        // Auto-fill razón social with backend data
+        if (result.data.razon_social) {
+          onRazonSocialChange(result.data.razon_social);
+        }
+      } else {
+        setRucValidation({ 
+          isValid: false, 
+          isLoading: false, 
+          error: result.error || 'RUC no válido'
+        });
+      }
+    } catch (error) {
+      setRucValidation({ 
+        isValid: false, 
+        isLoading: false, 
+        error: 'Error al validar RUC. Intentá de nuevo.'
+      });
+    }
+  };
+
   const inputClass = (field: string) =>
     `w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-[#1E5126] focus:border-[#1E5126] ${
-      hasError(field) ? 'border-red-500' : 'border-gray-300'
+      hasError(field) ? 'border-red-500' : 
+      field === 'ruc' && rucValidation.isValid === true ? 'border-green-500' :
+      field === 'ruc' && rucValidation.isValid === false ? 'border-red-500' :
+      'border-gray-300'
     }`;
 
   return (
@@ -194,15 +263,62 @@ function RucAndReasonFields({
         <label className="block text-sm font-medium text-black mb-2">
           RUC <span className="text-red-500 ml-1">*</span>
         </label>
-        <input
-          type="text"
-          value={ruc}
-          onChange={(e) => onRucChange(e.target.value)}
-          onBlur={() => onBlur('ruc')}
-          className={inputClass('ruc')}
-          placeholder="80129693-5"
-        />
-        {hasError('ruc') && <p className="text-xs text-red-600 mt-1">{errors.ruc}</p>}
+        <div className="relative">
+          <input
+            type="text"
+            value={ruc}
+            onChange={(e) => onRucChange(e.target.value)}
+            onBlur={() => onBlur('ruc')}
+            className={inputClass('ruc')}
+            placeholder="80129693-5"
+          />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            {rucValidation.isLoading ? (
+              <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+            ) : rucValidation.isValid === true ? (
+              <CheckCircle className="w-5 h-5 text-green-500" />
+            ) : rucValidation.isValid === false ? (
+              <XCircle className="w-5 h-5 text-red-500" />
+            ) : null}
+          </div>
+        </div>
+        {rucValidation.error && (
+          <p className="text-xs text-red-600 mt-1">{rucValidation.error}</p>
+        )}
+        {rucValidation.isValid === true && (
+          <p className="text-xs text-green-600 mt-1">✓ RUC válido</p>
+        )}
+        {hasError('ruc') && !rucValidation.error && <p className="text-xs text-red-600 mt-1">{errors.ruc}</p>}
+        
+        {/* Manual verify button - prominent */}
+        <button
+          type="button"
+          onClick={handleManualVerify}
+          disabled={rucValidation.isLoading || !ruc.trim()}
+          className="mt-3 w-full px-4 py-2.5 text-sm font-semibold rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{
+            backgroundColor: rucValidation.isLoading ? '#9CA3AF' : '#1E5126',
+            color: '#fff',
+            border: 'none',
+          }}
+        >
+          {rucValidation.isLoading ? (
+            <span className="flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Verificando...
+            </span>
+          ) : rucValidation.isValid === true ? (
+            <span className="flex items-center justify-center gap-2">
+              <CheckCircle className="w-4 h-4" />
+              RUC Verificado
+            </span>
+          ) : (
+            <span className="flex items-center justify-center gap-2">
+              <CheckCircle className="w-4 h-4" />
+              Verificar RUC
+            </span>
+          )}
+        </button>
       </div>
 
       <div>
@@ -215,7 +331,7 @@ function RucAndReasonFields({
           onChange={(e) => onRazonSocialChange(e.target.value)}
           onBlur={() => onBlur('razonSocial')}
           className={inputClass('razonSocial')}
-          placeholder="Agropecuaria Huellas del Sur S.A."
+          placeholder="Se autocompleta al verificar el RUC"
         />
         {hasError('razonSocial') && (
           <p className="text-xs text-red-600 mt-1">{errors.razonSocial}</p>

@@ -160,6 +160,7 @@ function RequestCard({
   const typeMeta = CHANGE_REQUEST_TYPE_LABELS[request.change_type];
   const statusMeta = STATUS_META[request.status];
   const changes = extractChanges(request.payload);
+  const rejectionReason = request.rejection_reason?.trim();
 
   return (
     <div
@@ -204,9 +205,10 @@ function RequestCard({
               +{changes.length - 2} cambio{changes.length - 2 !== 1 ? 's' : ''} más
             </div>
           )}
-          {request.rejection_reason && (
-            <div className="text-xs text-red-600 mt-1.5 italic">
-              Motivo: {request.rejection_reason}
+          {request.status === 'rejected' && (
+            <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              <div className="font-semibold">Motivo del rechazo</div>
+              <div className="mt-1">{rejectionReason || 'El administrador no informó un motivo.'}</div>
             </div>
           )}
           <div className="flex items-center gap-2 text-[10px] text-gray-400 font-mono mt-1">

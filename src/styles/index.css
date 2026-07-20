@@ -1,3 +1,14 @@
 @import './fonts.css';
 @import './tailwind.css';
 @import './theme.css';
+
+/* Más superficie útil en mobile para orientar y mover el pin. */
+.transport-request-map-height {
+  height: 300px;
+}
+
+@media (max-width: 640px) {
+  .transport-request-map-height {
+    height: clamp(360px, 50svh, 520px);
+  }
+}

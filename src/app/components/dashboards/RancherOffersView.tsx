@@ -4,11 +4,20 @@ import {
   ChevronDown, ChevronUp, ShieldCheck, Info, X,
   AlertCircle, Star, Clock,
 } from 'lucide-react';
+import { toast } from 'sonner';
+import {
+  isMarketplaceDemoEnabled,
+  toRancherOfferViewModel,
+  useAcceptOffer,
+  useCounterOffer,
+  useRancherOffers,
+} from '@/features/transport-marketplace';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
 interface Offer {
   id: string;
+  backendId?: number;
   requestId: string;
   transporterName: string;
   transporterType: 'empresa' | 'owner-operator';
@@ -118,8 +127,11 @@ const SORT_CFG: Record<SortOrder, { label: string; bg: string; color: string }> 
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-import { toast } from 'sonner';
 export function RancherOffersView({ onBack, onAcceptOffer }: RancherOffersViewProps) {
+
+  const { data: backendOffers = [] } = useRancherOffers();
+  const counterOfferMutation = useCounterOffer();
+  const acceptOfferMutation = useAcceptOffer();
 
   // Filter / sort state
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
@@ -139,7 +151,7 @@ export function RancherOffersView({ onBack, onAcceptOffer }: RancherOffersViewPr
 
   // ── Static demo data ──────────────────────────────────────────────────────
 
-  const offers: Offer[] = [
+  const demoOffers: Offer[] = [
     {
       id: 'OFF-001', requestId: 'SOL-001',
       transporterName: 'Transporte González S.A.', transporterType: 'empresa',
@@ -169,6 +181,11 @@ export function RancherOffersView({ onBack, onAcceptOffer }: RancherOffersViewPr
       marketPrice: 2100000,
     },
   ];
+
+  const liveOffers = backendOffers.map((item) => toRancherOfferViewModel(item) as Offer);
+  const offers: Offer[] = liveOffers.length > 0
+    ? liveOffers
+    : isMarketplaceDemoEnabled ? demoOffers : [];
 
   // ── Build groups ──────────────────────────────────────────────────────────
 
@@ -256,16 +273,32 @@ export function RancherOffersView({ onBack, onAcceptOffer }: RancherOffersViewPr
   };
   const cancelCounter = () => { setCounteringOfferId(null); setCounterOfferAmount(''); };
 
-  const handleSendCounter = (offer: Offer) => {
+  const handleSendCounter = async (offer: Offer) => {
     const amount = parseInt(counterOfferAmount, 10);
     if (!amount || amount <= 0) return;
-    toast.success(`Contraoferta de ${fmt(amount)} enviada a ${offer.transporterName}`);
+
+    try {
+      if (offer.backendId) {
+        await counterOfferMutation.mutateAsync({ offerId: offer.backendId, amount });
+      }
+      toast.success(`Contraoferta de ${fmt(amount)} enviada a ${offer.transporterName}`);
+    } catch {
+      toast.error('No se pudo enviar la contraoferta. Intentá nuevamente.');
+      return;
+    }
     cancelCounter();
   };
 
-  const handleAccept = (offer: Offer) => {
-    onAcceptOffer(offer.requestId, offer.id);
-    setConfirmAcceptId(null);
+  const handleAccept = async (offer: Offer) => {
+    try {
+      if (offer.backendId) {
+        await acceptOfferMutation.mutateAsync(offer.backendId);
+      }
+      onAcceptOffer(offer.requestId, offer.id);
+      setConfirmAcceptId(null);
+    } catch {
+      toast.error('No se pudo aceptar la oferta. Intentá nuevamente.');
+    }
   };
 
   const cycleStatus = () =>

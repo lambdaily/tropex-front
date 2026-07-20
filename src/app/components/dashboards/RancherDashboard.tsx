@@ -1,4 +1,5 @@
 ﻿import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Package,
   FileText,
@@ -27,8 +28,6 @@ import {
   LayoutDashboard,
 } from "lucide-react";
 import { Button } from "../ui/button";
-import { NewShipmentFlow } from "./NewShipmentFlow";
-import { NewShipmentWizardRefactored } from "./NewShipmentWizardRefactored";
 import {
   useDemoStore,
   counterOfferByRancher,
@@ -67,8 +66,7 @@ export function RancherDashboard({
   subTypeLabel = "Ganadero",
   accountInitialData,
 }: RancherDashboardProps) {
-  const [showNewShipment, setShowNewShipment] = useState(false);
-  const [showShipmentSelector, setShowShipmentSelector] = useState(false);
+  const navigate = useNavigate();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
   const [currentView, setCurrentView] = useState<
     | "dashboard"
@@ -292,12 +290,6 @@ export function RancherDashboard({
     setCurrentView("dashboard");
   };
 
-  if (showNewShipment) {
-    return <NewShipmentFlow onClose={() => setShowNewShipment(false)} />;
-  }
-  if (showShipmentSelector) {
-    return <NewShipmentWizardRefactored onClose={() => setShowShipmentSelector(false)} />;
-  }
 
   const inTransitShipments = activeShipments.filter(
     (s) => s.status === "in-transit",
@@ -1304,7 +1296,7 @@ export function RancherDashboard({
                       )}
                     </button>
                     <button
-                      onClick={() => setCurrentView("cuenta")}
+                      onClick={() => navigate("/account")}
                       aria-label="Cuenta"
                       style={{
                         width: 36,
@@ -1334,7 +1326,7 @@ export function RancherDashboard({
                 >
                   {/* Tile 1: Nuevo Envío CTA */}
                   <button
-                    onClick={() => setShowNewShipment(true)}
+                    onClick={() => navigate("/transport-requests/new")}
                     style={{
                       background: "#F58718",
                       borderRadius: 10,
@@ -1391,7 +1383,7 @@ export function RancherDashboard({
 
                   {/* Tile 1b: Nuevo Envío (API Real) CTA */}
                   <button
-                    onClick={() => setShowShipmentSelector(true)}
+                    onClick={() => navigate("/transport-requests/new")}
                     style={{
                       background: "#F58718",
                       borderRadius: 10,

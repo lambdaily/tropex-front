@@ -1,5 +1,5 @@
-import { TroperoApp } from './components/TroperoApp';
+import { AppRouterProvider } from "@/app/router";
 
 export default function App() {
-  return <TroperoApp />;
+  return <AppRouterProvider />;
 }

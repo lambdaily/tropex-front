@@ -1,54 +1,38 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Button } from '../ui/button';
-import { Input } from '../ui/input';
-import { Label } from '../ui/label';
-import { Textarea } from '../ui/textarea';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { Button } from '@/app/components/ui/button';
+import { Input } from '@/app/components/ui/input';
+import { Label } from '@/app/components/ui/label';
+import { Textarea } from '@/app/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/app/components/ui/select';
 import { Beef, X, ArrowLeft, CheckCircle2, AlertTriangle, MapPin, ArrowRight, Loader2, AlertCircle } from 'lucide-react';
-import { AutocompleteInput, AutocompleteOption } from '../ui/autocomplete-input';
-import { ranchesData } from '../../data/ranches-data';
-import { useCreateShipment, type CreateShipmentPayload } from '@/features/shipments/api/shipmentsApi';
+import { AutocompleteInput, AutocompleteOption } from '@/app/components/ui/autocomplete-input';
 import { useMyEstablishment } from '@/features/my-establishment/hooks/useMyEstablishment';
-import { guideLimitFor, exceedsGuideLimit, DEMO_PRICING, estimateReferencePrice } from '../../config/business';
-import { MapView } from '../MapView';
+import { useCreateTransportRequest } from '../hooks/useCreateTransportRequest';
+import { useTransportCatalogs } from '../hooks/useTransportCatalogs';
+import type { CreateTransportRequestPayload } from '../types/transport-request.types';
+import { guideLimitFor, exceedsGuideLimit, DEMO_PRICING, estimateReferencePrice } from '@/app/config/business';
+import { MapView } from '@/app/components/MapView';
 import { toast } from 'sonner';
+import { catalogLabel, guideDraftsFor, guidesAreValid, parseHeads } from '../utils/livestock';
+import { getTodayInputValue, isDateOnOrAfterToday } from '../utils/dates';
 
-interface NewShipmentWizardRefactoredProps {
+interface TransportRequestWizardProps {
   onClose: () => void;
 }
 
-// SENACSA verified slaughterhouses
-const frigorificos = [
-  { name: 'Frigorifico Neuland', lat: '-25.1142215', lng: '-57.5522206' },
-  { name: 'Frigorifico Frigomerc', lat: '-25.2605851', lng: '-57.5919435' },
-  { name: 'Frigorifico San Antonio', lat: '-25.4233560', lng: '-57.5644755' },
-  { name: 'Minerva Foods San Antonio', lat: '-25.4230559', lng: '-57.5661409' },
-  { name: 'Frigorifico Guarani Planta Limpio', lat: '-25.1901875', lng: '-57.4640625' },
-  { name: 'Frigochorti', lat: '-22.3549738', lng: '-59.7545099' },
-  { name: 'Frigochaco', lat: '-25.1875545', lng: '-57.4322469' },
-  { name: 'Frigorifico Victoria', lat: '-25.1403480', lng: '-57.5492957' },
-  { name: 'Frigonorte', lat: '-22.6026138', lng: '-55.7453044' },
-  { name: 'Frigorifico UPISA', lat: '-25.0463072', lng: '-57.5429748' },
-  { name: 'UPISA Itapua', lat: '-27.0370700', lng: '-55.9370445' },
-  { name: 'Belen Frigorifico', lat: '-23.4782781', lng: '-57.2645285' },
-  { name: 'Frigorifico Concepcion', lat: '-23.4542642', lng: '-57.4341272' },
-  { name: 'Frigorifico Concepcion Mariano Roque Alonso', lat: '-25.19743', lng: '-57.51864' },
-  { name: 'Frigorifico los Lazos', lat: '-24.978571', lng: '-57.554633' },
-];
-
-const DEFAULT_COORDS = { lat: '-25.2637', lng: '-57.5759' };
-
-export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefactoredProps) {
+export function TransportRequestWizard({ onClose }: TransportRequestWizardProps) {
   const [step, setStep] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     // Step 1 - Origin
     originEstablishmentType: '',
+    originEstablishmentId: '',
     originLocation: '',
     originDepartment: '',
     pickupDate: '',
     // Step 2 - Destination
     destinationLocation: '',
+    destinationEstablishmentId: '',
     destinationType: '',
     // Step 3 - Livestock
     cattleCount: '',
@@ -69,34 +53,40 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
 
   const totalSteps = 4;
 
-  const createMutation = useCreateShipment();
+  const createMutation = useCreateTransportRequest();
   const { data: establishments } = useMyEstablishment();
-
-  // Memoize autocomplete options from ranches data
-  const ranchOptions: AutocompleteOption[] = useMemo(
-    () =>
-      ranchesData.map((ranch) => ({
-        code: ranch.code,
-        name: ranch.name,
-        display: `${ranch.name} - ${ranch.department} (${ranch.code})`,
-      })),
-    []
+  const catalogs = useTransportCatalogs();
+  const establishmentTypeOptions = useMemo(() => {
+    const options = [
+      ...(catalogs.establishmentTypes.data ?? []),
+      { value: 'mi_establecimiento', label: 'Mi establecimiento' },
+    ];
+    return options.filter((option, index, all) => (
+      all.findIndex((candidate) => candidate.value === option.value) === index
+    ));
+  }, [catalogs.establishmentTypes.data]);
+  const catalogEstablishments = catalogs.establishments.data ?? [];
+  const catalogFrigorificos = catalogs.frigorificos.data ?? [];
+  const establishmentOptions: AutocompleteOption[] = useMemo(
+    () => catalogEstablishments.map((establishment) => ({
+      code: String(establishment.id),
+      name: establishment.name,
+      display: [establishment.name, establishment.department].filter(Boolean).join(' · '),
+    })),
+    [catalogEstablishments]
   );
-
-  // Memoize frigorifico options
-  const frigorificoOptions: AutocompleteOption[] = useMemo(
-    () =>
-      frigorificos.map((frigo) => ({
-        code: frigo.name,
-        name: frigo.name,
-        display: `${frigo.name} (${frigo.lat}, ${frigo.lng})`,
-      })),
-    []
+  const frigorificoOptions = useMemo(
+    () => catalogFrigorificos.map((establishment) => ({
+      code: String(establishment.id),
+      name: establishment.name,
+      display: [establishment.name, establishment.department].filter(Boolean).join(' · '),
+    })),
+    [catalogFrigorificos]
   );
 
   // SENACSA split logic
   const needsSplit = useMemo(() => {
-    const count = parseInt(formData.cattleCount) || 0;
+    const count = parseHeads(formData.cattleCount);
     return exceedsGuideLimit(formData.cattleType, count);
   }, [formData.cattleCount, formData.cattleType]);
 
@@ -115,28 +105,33 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.cattleCount, formData.cattleType]);
 
-  // Handle ranch selection to autocomplete department
-  const handleRanchSelect = (option: AutocompleteOption) => {
-    const selectedRanch = ranchesData.find(
-      (ranch) => ranch.code === option.code && ranch.name === option.name
-    );
-
-    if (selectedRanch) {
-      setFormData({
-        ...formData,
-        originLocation: selectedRanch.name,
-        originDepartment: selectedRanch.department,
-      });
-    }
+  const selectEstablishment = (option: AutocompleteOption, field: 'origin' | 'destination') => {
+    const selected = [...catalogEstablishments, ...catalogFrigorificos]
+      .find((establishment) => String(establishment.id) === option.code);
+    if (!selected) return;
+    const latitude = selected.latitude == null ? null : Number(selected.latitude);
+    const longitude = selected.longitude == null ? null : Number(selected.longitude);
+    setFormData((previous) => field === 'origin'
+      ? { ...previous, originEstablishmentId: String(selected.id), originLocation: selected.name, originDepartment: selected.department || '' }
+      : { ...previous, destinationEstablishmentId: String(selected.id), destinationLocation: selected.name });
+    if (field === 'origin' && latitude != null && longitude != null) setOriginPin([latitude, longitude]);
+    if (field === 'destination' && latitude != null && longitude != null) setDestPin([latitude, longitude]);
   };
 
-  // Handle frigorifico selection
-  const handleFrigorificoSelect = (option: AutocompleteOption) => {
-    setFormData({
-      ...formData,
-      destinationLocation: option.name,
-    });
+  const setMyEstablishmentLocation = (field: 'origin' | 'destination') => {
+    const establishment = establishments?.[0];
+    if (!establishment || establishment.latitude == null || establishment.longitude == null) return;
+    const point: [number, number] = [Number(establishment.latitude), Number(establishment.longitude)];
+    if (field === 'origin') setOriginPin(point);
+    else setDestPin(point);
   };
+
+  const originNeedsMap = Boolean(formData.originEstablishmentType);
+  const originNeedsCatalogSelection = ['campo', 'frigorifico'].includes(formData.originEstablishmentType);
+  const destinationNeedsMap = Boolean(formData.destinationType);
+  const destinationNeedsCatalogSelection = ['campo', 'estancia', 'frigorifico'].includes(formData.destinationType);
+  const today = getTodayInputValue();
+  const pickupDateIsInvalid = Boolean(formData.pickupDate) && !isDateOnOrAfterToday(formData.pickupDate, today);
 
   // Cálculo de precio
   const calculatePrice = () => {
@@ -161,26 +156,41 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
   const handleSubmit = async () => {
     setError(null);
     const count = parseInt(formData.cattleCount) || 0;
-    const distance = DEMO_PRICING.defaultDistanceKm;
-
-    const payload: CreateShipmentPayload = {
-      origin: formData.originLocation || 'Sin especificar',
-      origin_department: formData.originDepartment || '',
-      origin_lat: originPin ? String(originPin[0]) : DEFAULT_COORDS.lat,
-      origin_lng: originPin ? String(originPin[1]) : DEFAULT_COORDS.lng,
-      origin_type: (formData.originEstablishmentType as CreateShipmentPayload['origin_type']) || 'campo',
-      destination: formData.destinationLocation || 'Sin especificar',
-      destination_type: (formData.destinationType as CreateShipmentPayload['destination_type']) || 'otro',
-      destination_lat: destPin ? String(destPin[0]) : DEFAULT_COORDS.lat,
-      destination_lng: destPin ? String(destPin[1]) : DEFAULT_COORDS.lng,
-      cattle_type: formData.cattleType as 'fat' | 'weaned',
-      cattle_type_label: formData.cattleType === 'weaned' ? 'Desmamantes' : 'Gordos',
+    const guides = guideDraftsFor(
+      formData.cattleType,
+      count,
+      formData.guide1Heads,
+      formData.guide2Heads,
+    );
+    const payload: CreateTransportRequestPayload = {
+      origin: {
+        type: formData.originEstablishmentType || 'campo',
+        establishment_id: Number(formData.originEstablishmentId) || undefined,
+        name: formData.originLocation || 'Sin especificar',
+        department: formData.originDepartment || undefined,
+        latitude: originPin?.[0] ?? null,
+        longitude: originPin?.[1] ?? null,
+      },
+      destination: {
+        type: formData.destinationType || 'otro',
+        establishment_id: Number(formData.destinationEstablishmentId) || undefined,
+        name: formData.destinationLocation || 'Sin especificar',
+        latitude: destPin?.[0] ?? null,
+        longitude: destPin?.[1] ?? null,
+      },
+      cattle_type: formData.cattleType,
+      cattle_type_label: catalogLabel(
+        catalogs.cattleTypes.data,
+        formData.cattleType,
+        formData.cattleType,
+      ),
       heads: count,
       pickup_date: formData.pickupDate || '',
-      distance_km: String(distance),
-      notes: formData.additionalNotes || formData.specialNotes || '',
-      flexibility: formData.flexibleWindow || '',
-      estimated_weight_per_head: formData.estimatedWeight || '',
+      truck_type: formData.truckType || undefined,
+      flexibility: formData.flexibleWindow || undefined,
+      notes: [formData.specialNotes, formData.additionalNotes].filter(Boolean).join('\n') || undefined,
+      estimated_weight_per_head: Number(formData.estimatedWeight) || undefined,
+      guides,
     };
 
     try {
@@ -197,23 +207,24 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
   const isStepValid = () => {
     switch (step) {
       case 1:
-        return formData.originEstablishmentType && formData.originLocation && formData.pickupDate;
+        return Boolean(formData.originEstablishmentType
+          && formData.originLocation
+          && isDateOnOrAfterToday(formData.pickupDate, today)
+          && (!originNeedsCatalogSelection || formData.originEstablishmentId)
+          && (!originNeedsMap || originPin));
       case 2:
-        return formData.destinationLocation && formData.destinationType;
+        return Boolean(formData.destinationLocation && formData.destinationType && (!destinationNeedsCatalogSelection || formData.destinationEstablishmentId) && (!destinationNeedsMap || destPin));
       case 3: {
         if (!formData.cattleCount || !formData.cattleType) return false;
-        const count = parseInt(formData.cattleCount) || 0;
+        const count = parseHeads(formData.cattleCount);
         if (count <= 0) return false;
         const weight = parseInt(formData.estimatedWeight) || 0;
         if (weight <= 0) return false;
-        const limit = guideLimitFor(formData.cattleType);
-        const isSplit = exceedsGuideLimit(formData.cattleType, count);
-        if (isSplit) {
-          const g1 = parseInt(formData.guide1Heads) || 0;
-          const g2 = parseInt(formData.guide2Heads) || 0;
-          if (g1 + g2 !== count || g1 <= 0 || g2 <= 0 || g1 > limit || g2 > limit) return false;
-        }
-        return true;
+        return guidesAreValid(
+          formData.cattleType,
+          count,
+          guideDraftsFor(formData.cattleType, count, formData.guide1Heads, formData.guide2Heads),
+        );
       }
       case 4:
         return true;
@@ -223,6 +234,11 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
   };
 
   const stepNames = ['Origen', 'Destino', 'Ganado', 'Confirmación'];
+  const selectedCattleTypeLabel = catalogLabel(
+    catalogs.cattleTypes.data,
+    formData.cattleType,
+    formData.cattleType || '—',
+  );
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#F6F1E8' }}>
@@ -300,21 +316,25 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <Select
                     value={formData.originEstablishmentType}
                     onValueChange={(value) => {
-                      if (value === 'mi-establecimiento') {
+                      if (value === 'mi_establecimiento') {
                         const est = establishments?.[0];
                         setFormData({
                           ...formData,
                           originEstablishmentType: value,
+                          originEstablishmentId: est?.id ? String(est.id) : '',
                           originLocation: est?.name || '',
                           originDepartment: est?.department || '',
                         });
+                        setMyEstablishmentLocation('origin');
                       } else {
                         setFormData({
                           ...formData,
                           originEstablishmentType: value,
+                          originEstablishmentId: '',
                           originLocation: '',
                           originDepartment: '',
                         });
+                        setOriginPin(null);
                       }
                     }}
                   >
@@ -322,11 +342,9 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                       <SelectValue placeholder="Seleccioná el tipo de establecimiento" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="campo">Estancia / Campo</SelectItem>
-                      <SelectItem value="frigorifico">Frigorífico</SelectItem>
-                      <SelectItem value="feria-remate">Feria / Remate</SelectItem>
-                      <SelectItem value="otro">Otro</SelectItem>
-                      <SelectItem value="mi-establecimiento">Mi establecimiento</SelectItem>
+                      {establishmentTypeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -336,15 +354,22 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <Label>Ubicación en el mapa</Label>
                   <div className="mt-1.5 w-full rounded-lg border border-gray-300 overflow-hidden">
                     <MapView
-                      height={256}
+                      heightClassName="transport-request-map-height"
                       fitToContent={false}
+                      recenterOnMarkerChange
                       onMapClick={(lat, lng) => setOriginPin([lat, lng])}
-                      markers={originPin ? [{ id: 'origin', lat: originPin[0], lng: originPin[1], type: 'origin', label: 'Origen' }] : []}
+                      searchable
+                      searchPlaceholder="Buscá una ubicación de origen"
+                      markers={originPin ? [{ id: 'origin', lat: originPin[0], lng: originPin[1], type: 'origin', label: 'Origen', draggable: true }] : []}
+                      onMarkerDragEnd={(_, lat, lng) => setOriginPin([lat, lng])}
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    {originPin ? `Ubicación marcada: ${originPin[0].toFixed(4)}, ${originPin[1].toFixed(4)}` : 'Hacé click en el mapa para marcar la ubicación.'}
+                    {originPin ? `Ubicación marcada: ${originPin[0].toFixed(4)}, ${originPin[1].toFixed(4)}` : 'Hacé click o usá el buscador del mapa para marcar la ubicación.'}
                   </p>
+                  {originNeedsMap && !originPin && (
+                    <p className="text-xs text-red-600 mt-1">Para este tipo de origen tenés que marcar una referencia en el mapa.</p>
+                  )}
                 </div>
 
                 {/* Conditional origin location input */}
@@ -355,8 +380,9 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                       label="Ubicación del establecimiento *"
                       placeholder="Buscá por código o nombre del establecimiento"
                       value={formData.originLocation}
-                      onSelect={handleRanchSelect}
-                      options={ranchOptions}
+                      onInputChange={() => setOriginPin(null)}
+                      onSelect={(option) => selectEstablishment(option, 'origin')}
+                      options={establishmentOptions}
                       required
                     />
                     <div>
@@ -390,19 +416,23 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                     label="Frigorífico verificado por SENACSA *"
                     placeholder="Buscá por nombre del frigorífico..."
                     value={formData.originLocation}
-                    onSelect={(option) => setFormData({ ...formData, originLocation: option.name })}
+                    onInputChange={() => setOriginPin(null)}
+                    onSelect={(option) => selectEstablishment(option, 'origin')}
                     options={frigorificoOptions}
                     required
                   />
                 )}
 
-                {(formData.originEstablishmentType === 'feria-remate' || formData.originEstablishmentType === 'otro') && (
+                {(formData.originEstablishmentType === 'feria' || formData.originEstablishmentType === 'otro') && (
                   <div>
                     <Label htmlFor="originLocation">Ubicación del establecimiento *</Label>
                     <Input
                       id="originLocation"
                       value={formData.originLocation}
-                      onChange={(e) => setFormData({ ...formData, originLocation: e.target.value })}
+                      onChange={(e) => {
+                        setOriginPin(null);
+                        setFormData({ ...formData, originLocation: e.target.value });
+                      }}
                       placeholder="Ej: Feria Ganadera del Este, CDE"
                       required
                       className="mt-1.5"
@@ -410,7 +440,7 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   </div>
                 )}
 
-                {formData.originEstablishmentType === 'mi-establecimiento' && (
+                {formData.originEstablishmentType === 'mi_establecimiento' && (
                   <div className="rounded-lg border p-4" style={{ backgroundColor: 'rgba(30,81,38,0.06)', borderColor: 'rgba(30,81,38,0.18)' }}>
                     <p className="text-xs font-semibold mb-1" style={{ color: 'rgba(30,81,38,0.5)' }}>MI ESTABLECIMIENTO</p>
                     <p className="text-sm font-semibold" style={{ color: '#1E5126' }}>
@@ -427,11 +457,15 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <Input
                     id="pickupDate"
                     type="date"
+                    min={today}
                     value={formData.pickupDate}
                     onChange={(e) => setFormData({ ...formData, pickupDate: e.target.value })}
                     required
                     className="mt-1.5"
                   />
+                  {pickupDateIsInvalid && (
+                    <p className="text-xs text-red-600 mt-1">La fecha de carga no puede ser anterior a hoy.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -449,15 +483,22 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <Label>Ubicación del destino en el mapa</Label>
                   <div className="mt-1.5 w-full rounded-lg border border-gray-300 overflow-hidden">
                     <MapView
-                      height={256}
+                      heightClassName="transport-request-map-height"
                       fitToContent={false}
+                      recenterOnMarkerChange
                       onMapClick={(lat, lng) => setDestPin([lat, lng])}
-                      markers={destPin ? [{ id: 'dest', lat: destPin[0], lng: destPin[1], type: 'destination', label: 'Destino' }] : []}
+                      searchable
+                      searchPlaceholder="Buscá una ubicación de destino"
+                      markers={destPin ? [{ id: 'dest', lat: destPin[0], lng: destPin[1], type: 'destination', label: 'Destino', draggable: true }] : []}
+                      onMarkerDragEnd={(_, lat, lng) => setDestPin([lat, lng])}
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    {destPin ? `Destino marcado: ${destPin[0].toFixed(4)}, ${destPin[1].toFixed(4)}` : 'Hacé click en el mapa para marcar el destino.'}
+                    {destPin ? `Destino marcado: ${destPin[0].toFixed(4)}, ${destPin[1].toFixed(4)}` : 'Hacé click o usá el buscador del mapa para marcar la ubicación.'}
                   </p>
+                  {destinationNeedsMap && !destPin && (
+                    <p className="text-xs text-red-600 mt-1">Tenés que marcar una referencia del destino en el mapa.</p>
+                  )}
                 </div>
 
                 {/* Tipo de destino */}
@@ -466,19 +507,23 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <Select
                     value={formData.destinationType}
                     onValueChange={(value) => {
-                      if (value === 'my-establishment') {
+                      if (value === 'mi_establecimiento') {
                         const est = establishments?.[0];
                         setFormData({
                           ...formData,
                           destinationType: value,
+                          destinationEstablishmentId: est?.id ? String(est.id) : '',
                           destinationLocation: est?.name || '',
                         });
+                        setMyEstablishmentLocation('destination');
                       } else {
                         setFormData({
                           ...formData,
                           destinationType: value,
+                          destinationEstablishmentId: '',
                           destinationLocation: '',
                         });
+                        setDestPin(null);
                       }
                     }}
                   >
@@ -486,40 +531,53 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                       <SelectValue placeholder="Seleccioná el tipo de destino" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="auction">Feria / Remate</SelectItem>
-                      <SelectItem value="slaughterhouse">Frigorífico</SelectItem>
-                      <SelectItem value="ranch">Otro establecimiento</SelectItem>
-                      <SelectItem value="other">Otro</SelectItem>
-                      <SelectItem value="my-establishment">Mi establecimiento</SelectItem>
+                      {establishmentTypeOptions.map((option) => (
+                        <SelectItem key={`destination-${option.value}`} value={option.value}>{option.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
 
                 {/* Ubicación de destino */}
-                {formData.destinationType === 'slaughterhouse' ? (
+                {formData.destinationType === 'frigorifico' ? (
                   <AutocompleteInput
                     id="destinationLocation"
                     label="Frigorífico verificado por SENACSA *"
                     placeholder="Buscá por nombre del frigorífico..."
                     value={formData.destinationLocation}
-                    onSelect={handleFrigorificoSelect}
+                    onInputChange={() => setDestPin(null)}
+                    onSelect={(option) => selectEstablishment(option, 'destination')}
                     options={frigorificoOptions}
                     required
                   />
-                ) : formData.destinationType === 'my-establishment' ? (
+                ) : formData.destinationType === 'mi_establecimiento' ? (
                   <div className="rounded-lg border p-4" style={{ backgroundColor: 'rgba(30,81,38,0.06)', borderColor: 'rgba(30,81,38,0.18)' }}>
                     <p className="text-xs font-semibold mb-1" style={{ color: 'rgba(30,81,38,0.5)' }}>MI ESTABLECIMIENTO</p>
                     <p className="text-sm font-semibold" style={{ color: '#1E5126' }}>
                       {formData.destinationLocation || 'Sin establecer'}
                     </p>
                   </div>
+                ) : ['campo', 'estancia'].includes(formData.destinationType) ? (
+                  <AutocompleteInput
+                    id="destinationLocation"
+                    label="Establecimiento de destino *"
+                    placeholder="Buscá por código o nombre del establecimiento"
+                    value={formData.destinationLocation}
+                    onInputChange={() => setDestPin(null)}
+                    onSelect={(option) => selectEstablishment(option, 'destination')}
+                    options={establishmentOptions}
+                    required
+                  />
                 ) : formData.destinationType ? (
                   <div>
                     <Label htmlFor="destinationLocation">Ubicación de destino *</Label>
                     <Input
                       id="destinationLocation"
                       value={formData.destinationLocation}
-                      onChange={(e) => setFormData({ ...formData, destinationLocation: e.target.value })}
+                      onChange={(e) => {
+                        setDestPin(null);
+                        setFormData({ ...formData, destinationLocation: e.target.value });
+                      }}
                       placeholder="Ej: Mercado Central, Asunción"
                       required
                       className="mt-1.5"
@@ -558,8 +616,9 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                       <SelectValue placeholder="Seleccioná tipo de ganado" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="weaned">Desmamantes</SelectItem>
-                      <SelectItem value="fat">Gordos</SelectItem>
+                      {(catalogs.cattleTypes.data ?? []).map((option) => (
+                        <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -669,6 +728,33 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
             </div>
           )}
 
+          {step === 4 && (
+            <div className="mb-4 bg-white rounded-xl p-5 border border-gray-200 space-y-4">
+              <div>
+                <Label htmlFor="truckType">Tipo de camión preferido</Label>
+                <Select value={formData.truckType} onValueChange={(value) => setFormData({ ...formData, truckType: value })}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Cualquier camión compatible" /></SelectTrigger>
+                  <SelectContent>
+                    {(catalogs.truckTypes.data ?? []).map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="flexibleWindow">Flexibilidad de fecha</Label>
+                <Select value={formData.flexibleWindow} onValueChange={(value) => setFormData({ ...formData, flexibleWindow: value })}>
+                  <SelectTrigger className="mt-1.5"><SelectValue placeholder="Seleccioná una opción" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="exacta">Fecha exacta</SelectItem>
+                    <SelectItem value="un_dia">± 1 día</SelectItem>
+                    <SelectItem value="tres_dias">± 3 días</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
           {/* Step 4 - Price & Confirmation */}
           {step === 4 && (() => {
             const { totalForRancher, distance, heads } = calculatePrice();
@@ -676,8 +762,8 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
               return new Intl.NumberFormat('es-PY').format(Math.round(price));
             };
 
-            const totalWeight = ((parseInt(formData.estimatedWeight) || 380) * (parseInt(formData.cattleCount) || 0)).toLocaleString('de-DE');
-            const cattleTypeLabel = formData.cattleType === 'weaned' ? 'Desmamantes' : formData.cattleType === 'fat' ? 'Gordos' : 'Vacas';
+            const totalWeight = ((parseHeads(formData.estimatedWeight) || 380) * parseHeads(formData.cattleCount)).toLocaleString('de-DE');
+            const cattleTypeLabel = selectedCattleTypeLabel;
 
             return (
               <div className="space-y-4">
@@ -779,11 +865,7 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <div>
                     <div className="text-xs text-gray-500">Tipo de origen</div>
                     <div className="text-sm font-medium text-black">
-                      {formData.originEstablishmentType === 'campo' ? 'Estancia / Campo' :
-                       formData.originEstablishmentType === 'frigorifico' ? 'Frigorífico' :
-                       formData.originEstablishmentType === 'feria-remate' ? 'Feria / Remate' :
-                       formData.originEstablishmentType === 'otro' ? 'Otro' :
-                       formData.originEstablishmentType === 'mi-establecimiento' ? 'Mi establecimiento' : '—'}
+                      {catalogLabel(establishmentTypeOptions, formData.originEstablishmentType)}
                     </div>
                   </div>
                   <div>
@@ -805,11 +887,7 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <div>
                     <div className="text-xs text-gray-500">Tipo de destino</div>
                     <div className="text-sm font-medium text-black">
-                      {formData.destinationType === 'auction' ? 'Feria / Remate' :
-                       formData.destinationType === 'slaughterhouse' ? 'Frigorífico' :
-                       formData.destinationType === 'ranch' ? 'Otro establecimiento' :
-                       formData.destinationType === 'other' ? 'Otro' :
-                       formData.destinationType === 'my-establishment' ? 'Mi establecimiento' : '—'}
+                      {catalogLabel(establishmentTypeOptions, formData.destinationType)}
                     </div>
                   </div>
                   <div className="border-t pt-3" style={{ borderColor: '#d4c9b8' }}>
@@ -819,8 +897,7 @@ export function NewShipmentWizardRefactored({ onClose }: NewShipmentWizardRefact
                   <div>
                     <div className="text-xs text-gray-500">Tipo de ganado</div>
                     <div className="text-sm font-medium text-black">
-                      {formData.cattleType === 'weaned' ? 'Desmamantes' :
-                       formData.cattleType === 'fat' ? 'Gordos' : '—'}
+                      {selectedCattleTypeLabel}
                     </div>
                   </div>
                   {step === 4 && formData.cattleCount && (

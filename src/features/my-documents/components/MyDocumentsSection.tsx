@@ -162,6 +162,7 @@ function DocumentRow({
 }: DocumentRowProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const { border: _cardBorder, ...documentCardStyle } = ui.card;
 
   const isUploaded = !!document;
   const isPdf = document?.filename?.toLowerCase().endsWith('.pdf');
@@ -290,7 +291,8 @@ function DocumentRow({
   return (
     <div
       style={{
-        ...ui.card,
+        ...documentCardStyle,
+        borderWidth: 1,
         borderStyle: dragOver ? 'solid' : 'dashed',
         borderColor: dragOver ? '#1E5126' : '#E9E4D8',
         background: dragOver ? 'rgba(30,81,38,0.04)' : '#fff',

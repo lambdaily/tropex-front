@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Bell,
   Plus,
@@ -39,7 +40,6 @@ import {
 import { MapView, type MapMarker } from "../MapView";
 import { coordsForCity, interpolate } from "../../data/paraguay-locations";
 import { shipmentStatusColor } from "../../config/colors";
-import { NewShipmentFlow } from "../dashboards/NewShipmentFlow";
 import { useDemoStore, acceptOffer, rejectOffer } from "../../store/demoStore";
 import { RancherOffersView } from "../dashboards/RancherOffersView";
 import { RancherTripDetailModal } from "../dashboards/RancherTripDetailModal";
@@ -71,7 +71,7 @@ export function RancherDashboardMobile({
   subTypeLabel = "Ganadero",
   accountInitialData,
 }: RancherDashboardMobileProps) {
-  const [showNewShipment, setShowNewShipment] = useState(false);
+  const navigate = useNavigate();
   const [mobileView, setMobileView] = useState<MobileView>("home");
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
@@ -236,9 +236,6 @@ export function RancherDashboardMobile({
   const isSecondaryView = ["history", "reports", "support"].includes(
     mobileView,
   );
-
-  if (showNewShipment)
-    return <NewShipmentFlow onClose={() => setShowNewShipment(false)} />;
 
   return (
     <div
@@ -708,7 +705,7 @@ export function RancherDashboardMobile({
           <div className="px-4 pt-4 space-y-4 pb-2">
             {/* Primary CTA */}
             <button
-              onClick={() => setShowNewShipment(true)}
+              onClick={() => navigate("/transport-requests/new")}
               className="w-full rounded-2xl p-4 flex items-center gap-4 text-left"
               style={{
                 backgroundColor: "#F58718",

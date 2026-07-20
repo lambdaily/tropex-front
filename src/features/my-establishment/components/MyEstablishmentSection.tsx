@@ -1,12 +1,15 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
-import { Pencil, Check, X, Loader2, AlertCircle, MapPin, CheckCircle2, Search } from 'lucide-react';
+import { Pencil, Check, X, Loader2, AlertCircle, MapPin, CheckCircle2, Search, Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useMyEstablishment, useUpdateMyEstablishment, type MyEstablishment } from '@/features/my-establishment';
+import { useCreateMyEstablishment, useMyEstablishment, useUpdateMyEstablishment, type CreateEstablishmentPayload, type MyEstablishment } from '@/features/my-establishment';
 import { authApi } from '@/features/auth/api/authApi';
 import { ui, fieldRow } from '@/app/components/AccountShell';
+import { AutocompleteInput, type AutocompleteOption } from '@/app/components/ui/autocomplete-input';
+import { useEstablishments } from '@/features/rancher-signup';
 
 type EstablishmentFormData = Pick<MyEstablishment, 'name' | 'owner_name' | 'ruc' | 'code_sigor' | 'department' | 'district' | 'frequency'>;
+type EstablishmentSubmission = EstablishmentFormData & { senacsa_establishment_id?: number };
 
 const PARAGUAY_DEPARTMENTS = [
   { value: 'Concepción', label: 'Concepción' },
@@ -39,6 +42,7 @@ const FREQUENCY_OPTIONS = [
 export function MyEstablishmentSection() {
   const { data: establishments = [], isLoading, isError, error, refetch } = useMyEstablishment();
   const updateMutation = useUpdateMyEstablishment();
+  const createMutation = useCreateMyEstablishment();
   const [isEditing, setIsEditing] = useState(false);
 
   if (isLoading) {
@@ -70,7 +74,36 @@ export function MyEstablishmentSection() {
   console.log('[MyEstablishmentSection] establishments:', establishments, 'selected:', establishment);
 
   if (!establishment) {
-    return <NoEstablishment />;
+    return (
+      <NoEstablishment
+        isSaving={createMutation.isPending}
+        onSave={async (data) => {
+          try {
+            const payload: CreateEstablishmentPayload = data.senacsa_establishment_id
+              ? { senacsa_establishment_id: data.senacsa_establishment_id }
+              : {
+                  establishment_name: data.name,
+                  department: data.department,
+                  district: data.district,
+                  frequency: data.frequency || undefined,
+                };
+            await createMutation.mutateAsync({
+              data: payload,
+              sensitiveData: {
+                ruc: data.ruc,
+                owner_name: data.owner_name,
+                department: data.department,
+                district: data.district,
+              },
+            });
+            toast.success('Establecimiento agregado. Los datos sensibles fueron enviados a revisión.');
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : 'Error desconocido';
+            toast.error(`No se pudo agregar el establecimiento: ${msg}`);
+          }
+        }}
+      />
+    );
   }
 
   return (
@@ -108,23 +141,49 @@ export function MyEstablishmentSection() {
 
 /* ─── Sub-componentes ─── */
 
-function NoEstablishment() {
+function NoEstablishment({
+  isSaving,
+  onSave,
+}: {
+  isSaving: boolean;
+  onSave: (data: EstablishmentSubmission) => Promise<void>;
+}) {
+  const [isAdding, setIsAdding] = useState(false);
+
   return (
     <div style={ui.card}>
-      <div className="flex items-center gap-3">
-        <div
-          className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: 'rgba(30,81,38,0.08)' }}
-        >
-          <MapPin size={22} style={{ color: '#1E5126' }} />
-        </div>
-        <div>
-          <div style={ui.sectionTitle}>Sin establecimiento</div>
-          <div className="text-sm" style={{ color: '#6B7280', marginTop: 2 }}>
-            Registrá tu establecimiento en el paso 2 del registro.
+      {!isAdding ? (
+        <div className="flex items-center gap-3">
+          <div
+            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(30,81,38,0.08)' }}
+          >
+            <MapPin size={22} style={{ color: '#1E5126' }} />
           </div>
+          <div className="flex-1">
+            <div style={ui.sectionTitle}>Sin establecimiento</div>
+            <div className="text-sm" style={{ color: '#6B7280', marginTop: 2 }}>
+              Agregá tu establecimiento cuando estés listo.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAdding(true)}
+            style={{ ...ui.primaryBtn, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Plus size={14} /> Agregar
+          </button>
         </div>
-      </div>
+      ) : (
+        <>
+          <div style={ui.sectionTitle}>Agregar establecimiento</div>
+          <EditEstablishmentForm
+            isSaving={isSaving}
+            onCancel={() => setIsAdding(false)}
+            onSave={onSave}
+          />
+        </>
+      )}
     </div>
   );
 }
@@ -142,7 +201,7 @@ function EstablishmentCard({
   isSaving: boolean;
   onEdit: () => void;
   onCancel: () => void;
-  onSave: (data: EstablishmentFormData) => Promise<void>;
+  onSave: (data: EstablishmentSubmission) => Promise<void>;
 }) {
   return (
     <div style={ui.card}>
@@ -227,10 +286,10 @@ function EditEstablishmentForm({
   onCancel,
   onSave,
 }: {
-  establishment: MyEstablishment;
+  establishment?: MyEstablishment;
   isSaving: boolean;
   onCancel: () => void;
-  onSave: (data: EstablishmentFormData) => Promise<void>;
+  onSave: (data: EstablishmentSubmission) => Promise<void>;
 }) {
   const {
     register,
@@ -241,26 +300,52 @@ function EditEstablishmentForm({
     reset,
   } = useForm<EstablishmentFormData>({
     defaultValues: {
-      name: establishment.name,
-      owner_name: establishment.owner_name,
-      ruc: establishment.ruc,
-      code_sigor: establishment.code_sigor,
-      department: establishment.department,
-      district: establishment.district,
-      frequency: establishment.frequency,
+      name: establishment?.name ?? '',
+      owner_name: establishment?.owner_name ?? '',
+      ruc: establishment?.ruc ?? '',
+      code_sigor: establishment?.code_sigor ?? '',
+      department: establishment?.department ?? '',
+      district: establishment?.district ?? '',
+      frequency: establishment?.frequency ?? '',
     },
   });
 
   const [rucVerifying, setRucVerifying] = useState(false);
   const [rucVerified, setRucVerified] = useState(false);
   const [rucError, setRucError] = useState<string | null>(null);
+  const [senacsaEstablishmentId, setSenacsaEstablishmentId] = useState<number | undefined>();
 
   const rucValue = watch('ruc');
+  const establishmentName = watch('name');
+  const { data: senacsaData, isLoading: isLoadingSenacsa } = useEstablishments();
+  const establishmentOptions = senacsaData?.options ?? [];
+  const senacsaEstablishments = senacsaData?.establishments ?? [];
 
-  const verifyRuc = useCallback(async (ruc: string) => {
-    if (!ruc || ruc.length < 6) {
+  const handleEstablishmentSelect = (option: AutocompleteOption) => {
+    const selected = senacsaEstablishments.find(
+      (item) => item.establishmentName === option.name,
+    );
+
+    setValue('name', option.name, { shouldDirty: true, shouldValidate: true });
+    setValue('code_sigor', selected?.establishmentCode ?? '', { shouldDirty: true });
+    setValue('department', selected?.department ?? '', { shouldDirty: true });
+    setValue('district', selected?.district ?? '', { shouldDirty: true });
+    setSenacsaEstablishmentId(selected?.id);
+  };
+
+  const verifyRuc = async () => {
+    const ruc = rucValue.trim();
+    const digitCount = ruc.replace(/\D/g, '').length;
+
+    if (!ruc) {
       setRucVerified(false);
-      setRucError(null);
+      setRucError('Ingresá un RUC primero');
+      return;
+    }
+
+    if (digitCount < 6) {
+      setRucVerified(false);
+      setRucError('El RUC debe tener al menos 6 dígitos');
       return;
     }
 
@@ -286,34 +371,26 @@ function EditEstablishmentForm({
     } finally {
       setRucVerifying(false);
     }
-  }, [setValue]);
-
-  useEffect(() => {
-    if (rucValue !== establishment.ruc) {
-      const timeoutId = setTimeout(() => {
-        verifyRuc(rucValue);
-      }, 800);
-      return () => clearTimeout(timeoutId);
-    } else {
-      setRucVerified(false);
-      setRucError(null);
-    }
-  }, [rucValue, establishment.ruc, verifyRuc]);
+  };
 
   useEffect(() => {
     reset({
-      name: establishment.name,
-      owner_name: establishment.owner_name,
-      ruc: establishment.ruc,
-      code_sigor: establishment.code_sigor,
-      department: establishment.department,
-      district: establishment.district,
-      frequency: establishment.frequency,
+      name: establishment?.name ?? '',
+      owner_name: establishment?.owner_name ?? '',
+      ruc: establishment?.ruc ?? '',
+      code_sigor: establishment?.code_sigor ?? '',
+      department: establishment?.department ?? '',
+      district: establishment?.district ?? '',
+      frequency: establishment?.frequency ?? '',
     });
   }, [establishment, reset]);
 
   const onSubmit = async (data: EstablishmentFormData) => {
-    await onSave(data);
+    await onSave(
+      establishment
+        ? data
+        : { ...data, senacsa_establishment_id: senacsaEstablishmentId },
+    );
   };
 
   const fields: Array<{
@@ -336,15 +413,51 @@ function EditEstablishmentForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 8 }}>
-      {fields.map(({ key, label, type, placeholder, options, validation, sensitive }) => (
+      {fields.map(({ key, label, type, placeholder, options, validation, sensitive }) => {
+        const fieldRegistration = register(key, validation as never);
+        const fieldValue = watch(key);
+
+        return (
         <div key={key}>
-          <div style={{ ...ui.lbl, marginBottom: 5 }}>
-            {label}
-            {sensitive && <span style={{ color: '#B45309', marginLeft: 6, fontSize: 9 }}>requiere aprobación</span>}
-          </div>
-          {type === 'select' && options ? (
+          {key !== 'name' && (
+            <div style={{ ...ui.lbl, marginBottom: 5 }}>
+              {label}
+              {sensitive && <span style={{ color: '#B45309', marginLeft: 6, fontSize: 9 }}>requiere aprobación</span>}
+            </div>
+          )}
+          {key === 'name' ? (
+            <>
+              <input type="hidden" {...fieldRegistration} />
+              <AutocompleteInput
+                id="account-establishment-name"
+                label={label}
+                placeholder={isLoadingSenacsa ? 'Cargando establecimientos...' : 'Buscá y seleccioná el establecimiento'}
+                options={establishmentOptions}
+                value={establishmentName}
+                onSelect={handleEstablishmentSelect}
+                onInputChange={(name) => {
+                  setValue('name', name, { shouldDirty: true, shouldValidate: true });
+                  setSenacsaEstablishmentId(undefined);
+                }}
+                required
+              />
+              {isLoadingSenacsa && (
+                <div className="text-xs mt-1" style={{ color: '#6B7280' }}>
+                  Cargando listado de SENACSA...
+                </div>
+              )}
+            </>
+          ) : type === 'select' && options ? (
             <select
-              {...register(key, validation as never)}
+              {...fieldRegistration}
+              value={fieldValue ?? ''}
+              onChange={(event) => {
+                fieldRegistration.onChange(event);
+                setValue(key, event.target.value, {
+                  shouldDirty: true,
+                  shouldValidate: true,
+                });
+              }}
               style={{
                 ...ui.input,
                 borderColor: errors[key] ? '#FCA5A5' : '#E5E7EB',
@@ -367,7 +480,12 @@ function EditEstablishmentForm({
                   borderColor: errors[key] ? '#FCA5A5' : rucError && key === 'ruc' ? '#FCA5A5' : rucVerified && key === 'ruc' ? '#86EFAC' : '#E5E7EB',
                   paddingRight: key === 'ruc' && rucVerifying ? 36 : undefined,
                 }}
-                {...register(key, validation as never)}
+                {...fieldRegistration}
+                onChange={key === 'ruc' ? (event) => {
+                  fieldRegistration.onChange(event);
+                  setRucVerified(false);
+                  setRucError(null);
+                } : undefined}
               />
               {key === 'ruc' && rucVerifying && (
                 <Loader2 size={16} className="animate-spin" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#6B7280' }} />
@@ -395,8 +513,33 @@ function EditEstablishmentForm({
               RUC verificado correctamente
             </div>
           )}
+          {key === 'ruc' && (
+            <button
+              type="button"
+              onClick={verifyRuc}
+              disabled={rucVerifying || !rucValue.trim()}
+              style={{
+                ...ui.primaryBtn,
+                width: '100%',
+                marginTop: 10,
+                opacity: rucVerifying || !rucValue.trim() ? 0.5 : 1,
+                cursor: rucVerifying || !rucValue.trim() ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {rucVerifying ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Loader2 size={14} className="animate-spin" /> Verificando...
+                </span>
+              ) : rucVerified ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <CheckCircle2 size={14} /> RUC verificado
+                </span>
+              ) : 'Verificar RUC'}
+            </button>
+          )}
         </div>
-      ))}
+        );
+      })}
 
       <div
         className="p-3 rounded-lg text-xs"

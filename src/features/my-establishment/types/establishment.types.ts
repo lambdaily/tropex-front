@@ -23,3 +23,25 @@ export interface UpdateEstablishmentPayload {
   latitude?: string;
   longitude?: string;
 }
+
+export interface CreateEstablishmentPayload {
+  senacsa_establishment_id?: number;
+  establishment_name?: string;
+  department?: string;
+  district?: string;
+  latitude?: number;
+  longitude?: number;
+  frequency?: string;
+}
+
+export interface SensitiveEstablishmentData {
+  ruc: string;
+  owner_name: string;
+  department: string;
+  district: string;
+}
+
+export interface CreateEstablishmentRequest {
+  data: CreateEstablishmentPayload;
+  sensitiveData: SensitiveEstablishmentData;
+}

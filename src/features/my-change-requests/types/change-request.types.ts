@@ -11,6 +11,9 @@ export interface ChangeRequest {
   payload: Record<string, unknown>;
   status: ChangeRequestStatus;
   rejection_reason: string;
+  /** Compatibility aliases returned by some backend serializers. */
+  reason?: string | null;
+  rejectionReason?: string | null;
   reviewed_by: number | null;
   reviewed_at: string | null;
   created_at: string;

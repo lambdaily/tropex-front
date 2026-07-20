@@ -50,7 +50,7 @@ export interface EstablishmentFormErrors {
 
 export interface EstablishmentFormProps {
   onNext: (data: EstablishmentFormData) => void;
-  onSkip: () => void;
+  onSkip?: () => void;
   onBack: () => void;
   initialData?: Partial<EstablishmentFormData>;
   signupError?: string | null;

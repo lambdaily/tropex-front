@@ -216,28 +216,7 @@ function EditProfileForm({ profile, onCancel }: { profile: MyProfile; onCancel: 
   );
 }
 
-function EstablishmentTab({ hasEstablishment }: { hasEstablishment: boolean }) {
-  if (!hasEstablishment) {
-    return (
-      <div style={ui.card}>
-        <div className="flex items-center gap-3">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-            style={{ background: 'rgba(30,81,38,0.08)' }}
-          >
-            <MapPin size={22} style={{ color: BRAND_COLORS.verdeProfundo }} />
-          </div>
-          <div>
-            <div style={ui.sectionTitle}>Sin establecimiento</div>
-            <div className="text-sm" style={{ color: '#6B7280', marginTop: 2 }}>
-              Registrá tu establecimiento en el paso 2 del registro.
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+function EstablishmentTab({ hasEstablishment: _hasEstablishment }: { hasEstablishment: boolean }) {
   return <MyEstablishmentSection />;
 }
 

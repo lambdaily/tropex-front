@@ -8,19 +8,38 @@ interface PaginatedResponse<T> {
   results: T[];
 }
 
+type RawChangeRequest = ChangeRequest & {
+  reason?: string | null;
+  rejectionReason?: string | null;
+};
+
+function normalizeChangeRequest(request: RawChangeRequest): ChangeRequest {
+  const payloadReason = request.payload?.rejection_reason ?? request.payload?.reason;
+  const rejectionReason = request.status === 'rejected'
+    ? request.rejection_reason || request.reason || request.rejectionReason || (typeof payloadReason === 'string' ? payloadReason : '')
+    : '';
+
+  return {
+    ...request,
+    rejection_reason: rejectionReason,
+  };
+}
+
 export const myChangeRequestsApi = {
   list: async (): Promise<ChangeRequest[]> => {
     const response = await apiClient.get<PaginatedResponse<ChangeRequest>>('/user-change-requests/');
-    return response.results;
+    return response.results.map((request) => normalizeChangeRequest(request as RawChangeRequest));
   },
 
   listAll: async (): Promise<ChangeRequest[]> => {
     const response = await apiClient.get<PaginatedResponse<ChangeRequest>>('/user-change-requests/all/');
-    return response.results;
+    return response.results.map((request) => normalizeChangeRequest(request as RawChangeRequest));
   },
 
-  get: (id: number): Promise<ChangeRequest> =>
-    apiClient.get<ChangeRequest>(`/user-change-requests/${id}/`),
+  get: async (id: number): Promise<ChangeRequest> => {
+    const request = await apiClient.get<RawChangeRequest>(`/user-change-requests/${id}/`);
+    return normalizeChangeRequest(request);
+  },
 
   create: (data: { change_type: ChangeRequestType; payload: Record<string, unknown> }): Promise<ChangeRequest> =>
     apiClient.post<ChangeRequest>('/user-change-requests/', data),

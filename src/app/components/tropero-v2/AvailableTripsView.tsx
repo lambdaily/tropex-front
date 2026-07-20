@@ -12,6 +12,7 @@ import { MapView } from '../MapView';
 import { coordsForCity } from '../../data/paraguay-locations';
 import { SolicitudDetailModal } from './SolicitudDetailModal';
 import { MAX_HEADS_PER_TRUCK, billableHeads, cattleCategoryFromLabel, exceedsGuideLimit, guideLimitFor } from '../../config/business';
+import { isMarketplaceDemoEnabled, toMarketplaceTrip, useAvailableTransportRequests, useCreateTransportOffer } from '@/features/transport-marketplace';
 
 // ── Estilos reutilizables de la card del marketplace (look unificado) ──────────
 const cardStatLabel: CSSProperties = { fontSize: 9, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 };
@@ -23,6 +24,7 @@ const footerBtnBase: CSSProperties = { padding: '9px 14px', borderRadius: 10, bo
 
 interface Trip {
   id: string;
+  backendId?: number;
   rancherId: string;
   rancherName: string;
   rancherPhone: string;
@@ -48,7 +50,7 @@ interface Trip {
   marketPrice?: number;
   isStoreOrder?: boolean;
   hoursAgo?: number;
-  guides?: Array<{ guideNumber: 1 | 2; heads: number; status: string; activeOfferId?: string }>;
+  guides?: Array<{ guideNumber: 1 | 2; backendGuideId?: number; heads: number; status: string; activeOfferId?: string }>;
   estimatedWeight?: number;
   /** Documentos SENACSA verificados por la plataforma. */
   verified?: boolean;
@@ -130,6 +132,9 @@ export function AvailableTripsView({ userType, onBack, initialTripIdToBid, initi
   const [guideViewIdx, setGuideViewIdx] = useState<Record<string, number>>({});
 
   const { orders: storeOrders } = useDemoStore();
+  const { data: backendRequests = [] } = useAvailableTransportRequests();
+  const createOfferMutation = useCreateTransportOffer();
+  const backendTrips = backendRequests.map((request) => toMarketplaceTrip(request) as Trip);
 
   // Mock data for drivers and vehicles
   const availableDrivers: Driver[] = [
@@ -322,7 +327,9 @@ export function AvailableTripsView({ userType, onBack, initialTripIdToBid, initi
     };
   };
 
-  const availableTrips: Trip[] = [...mockTrips, ...storeTrips]
+  const demoTrips: Trip[] = [...mockTrips, ...storeTrips];
+  const fallbackTrips = isMarketplaceDemoEnabled ? demoTrips : storeTrips;
+  const availableTrips: Trip[] = [...(backendTrips.length > 0 ? backendTrips : fallbackTrips)]
     .filter(t => !dismissedTripIds.includes(t.id))
     .map(withSenacsaGuides);
 
@@ -486,7 +493,7 @@ export function AvailableTripsView({ userType, onBack, initialTripIdToBid, initi
     setTimeout(() => setLinkCopied(false), 2000);
   };
 
-  const submitBid = () => {
+  const submitBid = async () => {
     if (!selectedTrip) return;
 
     let finalAmount = 0;
@@ -502,37 +509,52 @@ export function AvailableTripsView({ userType, onBack, initialTripIdToBid, initi
       finalAmount = billableHeads(guideHeads) * parseInt(manualDistance) * parseInt(manualPricePerKm);
     }
 
-    if (selectedTrip.bidStatus === 'new') {
-      toast.success(`Oferta de ₲ ${finalAmount.toLocaleString('es-PY')} enviada al ganadero. Esperando respuesta...`);
-    } else if (selectedTrip.bidStatus === 'rancher-countered') {
-      toast.success(`Contraoferta final de ₲ ${finalAmount.toLocaleString('es-PY')} enviada. Esta es tu última oportunidad de negociación.`);
-    }
+    try {
+      if (selectedTrip.backendId) {
+        const selectedGuide = selectedGuideNumber && selectedTrip.guides
+          ? selectedTrip.guides.find((guide) => guide.guideNumber === selectedGuideNumber)
+          : undefined;
 
-    // Write to demo store if this is a store order
-    if (selectedTrip.isStoreOrder) {
-      if (bothGuidesMode && guide1Assignment && pendingFleetAssignment && selectedTrip.guides) {
-        // Create one offer per guide with individual driver/vehicle assignments
-        const g1 = selectedTrip.guides.find(g => g.guideNumber === 1);
-        const g2 = selectedTrip.guides.find(g => g.guideNumber === 2);
-        const transporterName = 'Demo Empresa';
-        const now = Date.now();
-        const g1Amount = g1 ? Math.round(finalAmount * g1.heads / selectedTrip.heads) : 0;
-        const g2Amount = finalAmount - g1Amount;
-        if (g1) addOffer({ orderId: selectedTrip.id, guideNumber: 1, transporterName, transporterType: 'empresa', amount: g1Amount, status: 'pending', rounds: [{ round: 1, by: 'transporter', amount: g1Amount, timestamp: now }], assignedDriverId: guide1Assignment.driverId, assignedVehicleId: guide1Assignment.vehicleId });
-        if (g2) addOffer({ orderId: selectedTrip.id, guideNumber: 2, transporterName, transporterType: 'empresa', amount: g2Amount, status: 'pending', rounds: [{ round: 1, by: 'transporter', amount: g2Amount, timestamp: now }], assignedDriverId: pendingFleetAssignment.driverId, assignedVehicleId: pendingFleetAssignment.vehicleId });
-      } else {
-        addOffer({
-          orderId: selectedTrip.id,
-          guideNumber: selectedTrip.guides && selectedTrip.guides.length > 1 ? selectedGuideNumber : undefined,
-          transporterName: userType === 'owner-operator' ? 'Demo Transportista Independiente' : 'Demo Empresa',
-          transporterType: userType,
+        await createOfferMutation.mutateAsync({
+          requestId: selectedTrip.backendId,
           amount: finalAmount,
-          status: 'pending',
-          rounds: [{ round: 1, by: 'transporter', amount: finalAmount, timestamp: Date.now() }],
-          assignedDriverId: pendingFleetAssignment?.driverId,
-          assignedVehicleId: pendingFleetAssignment?.vehicleId,
+          guideId: selectedGuide?.backendGuideId ?? null,
+          pricePerKm: pricingMethod === 'manual' ? Number(manualPricePerKm) : null,
         });
+      } else if (selectedTrip.isStoreOrder) {
+        // Keep the demo store as a local-only fallback for demo orders.
+        if (bothGuidesMode && guide1Assignment && pendingFleetAssignment && selectedTrip.guides) {
+          const g1 = selectedTrip.guides.find(g => g.guideNumber === 1);
+          const g2 = selectedTrip.guides.find(g => g.guideNumber === 2);
+          const transporterName = 'Demo Empresa';
+          const now = Date.now();
+          const g1Amount = g1 ? Math.round(finalAmount * g1.heads / selectedTrip.heads) : 0;
+          const g2Amount = finalAmount - g1Amount;
+          if (g1) addOffer({ orderId: selectedTrip.id, guideNumber: 1, transporterName, transporterType: 'empresa', amount: g1Amount, status: 'pending', rounds: [{ round: 1, by: 'transporter', amount: g1Amount, timestamp: now }], assignedDriverId: guide1Assignment.driverId, assignedVehicleId: guide1Assignment.vehicleId });
+          if (g2) addOffer({ orderId: selectedTrip.id, guideNumber: 2, transporterName, transporterType: 'empresa', amount: g2Amount, status: 'pending', rounds: [{ round: 1, by: 'transporter', amount: g2Amount, timestamp: now }], assignedDriverId: pendingFleetAssignment.driverId, assignedVehicleId: pendingFleetAssignment.vehicleId });
+        } else {
+          addOffer({
+            orderId: selectedTrip.id,
+            guideNumber: selectedTrip.guides && selectedTrip.guides.length > 1 ? selectedGuideNumber : undefined,
+            transporterName: userType === 'owner-operator' ? 'Demo Transportista Independiente' : 'Demo Empresa',
+            transporterType: userType,
+            amount: finalAmount,
+            status: 'pending',
+            rounds: [{ round: 1, by: 'transporter', amount: finalAmount, timestamp: Date.now() }],
+            assignedDriverId: pendingFleetAssignment?.driverId,
+            assignedVehicleId: pendingFleetAssignment?.vehicleId,
+          });
+        }
       }
+
+      if (selectedTrip.bidStatus === 'new') {
+        toast.success(`Oferta de ₲ ${finalAmount.toLocaleString('es-PY')} enviada al ganadero. Esperando respuesta...`);
+      } else if (selectedTrip.bidStatus === 'rancher-countered') {
+        toast.success(`Contraoferta final de ₲ ${finalAmount.toLocaleString('es-PY')} enviada. Esta es tu última oportunidad de negociación.`);
+      }
+    } catch {
+      toast.error('No se pudo enviar la oferta. Intentá nuevamente.');
+      return;
     }
 
     setShowBidModal(false);

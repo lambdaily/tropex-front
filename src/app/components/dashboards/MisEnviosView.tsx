@@ -1,11 +1,13 @@
 // "Mis envíos" del ganadero: secciones por estado (en tránsito, aceptados,
 // esperando transportista, y completos esperando liquidación). Los completos
 // abren el flujo de liquidación (calificar + pagar + comprobante → esperando verificación).
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Truck, CheckCircle2, Clock, Package, Star } from 'lucide-react';
 import { C, DISPLAY, BODY, MONO, formatGs } from './admin/kit';
 import { useIsMobile } from '../ui/use-mobile';
 import { GanaderoLiquidacionFlow } from '../payments/GanaderoLiquidacionFlow';
+import { useShipments } from '@/features/shipments';
+import { isMarketplaceDemoEnabled, useRancherOffers } from '@/features/transport-marketplace';
 
 type Envio = { id: string; route: string; heads: number; cattle: string; transportista?: string; sub?: string; freight?: number };
 
@@ -29,6 +31,55 @@ export function MisEnviosView({ compact }: { compact?: boolean }) {
   const isMobile = useIsMobile();
   const [settled, setSettled] = useState<Set<string>>(new Set());
   const [liq, setLiq] = useState<Envio | null>(null);
+  const { data: shipments = [] } = useShipments();
+  const { data: rancherOffers = [] } = useRancherOffers();
+
+  const sections = useMemo(() => {
+    if (shipments.length === 0) return isMarketplaceDemoEnabled ? SECTIONS : [];
+
+    const offerCountByRequest = rancherOffers.reduce<Record<number, number>>((counts, item) => {
+      counts[item.request.id] = (counts[item.request.id] || 0) + 1;
+      return counts;
+    }, {});
+
+    const formatPickupDate = (date: string) => {
+      const [year, month, day] = date.split('-');
+      return year && month && day ? `${day}/${month}/${year}` : date;
+    };
+
+    const toEnvio = (shipment: typeof shipments[number]): Envio => {
+      const id = `SOL-${String(shipment.id).padStart(4, '0')}`;
+      const offersCount = offerCountByRequest[shipment.id] || 0;
+      const sub = offersCount > 0
+        ? `${offersCount} oferta${offersCount === 1 ? '' : 's'} recibida${offersCount === 1 ? '' : 's'}`
+        : `Retiro ${formatPickupDate(shipment.pickup_date)}`;
+
+      return {
+        id,
+        route: `${shipment.origin} → ${shipment.destination}`,
+        heads: shipment.heads,
+        cattle: shipment.cattle_type_label,
+        sub,
+      };
+    };
+
+    const sectionsByStatus = [
+      {
+        key: 'aceptados',
+        title: 'Aceptados · por retirar',
+        color: '#2563EB',
+        items: shipments.filter((shipment) => shipment.status === 'accepted').map(toEnvio),
+      },
+      {
+        key: 'esperando',
+        title: 'Esperando transportista',
+        color: C.grisClaro,
+        items: shipments.filter((shipment) => shipment.status === 'new' || shipment.status === 'partial').map(toEnvio),
+      },
+    ];
+
+    return sectionsByStatus.filter((section) => section.items.length > 0);
+  }, [rancherOffers, shipments]);
 
   return (
     <div style={{ padding: compact ? '4px 0 40px' : '8px 0 24px', fontFamily: BODY }}>
@@ -40,7 +91,7 @@ export function MisEnviosView({ compact }: { compact?: boolean }) {
       )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-        {SECTIONS.map(sec => (
+        {sections.map(sec => (
           <div key={sec.key}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: sec.color }} />

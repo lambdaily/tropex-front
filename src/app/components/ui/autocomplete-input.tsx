@@ -15,6 +15,7 @@ interface AutocompleteInputProps {
   options: AutocompleteOption[];
   value: string;
   onSelect: (option: AutocompleteOption) => void;
+  onInputChange?: (value: string) => void;
   required?: boolean;
   className?: string;
 }
@@ -26,6 +27,7 @@ export function AutocompleteInput({
   options,
   value,
   onSelect,
+  onInputChange,
   required = false,
   className = '',
 }: AutocompleteInputProps) {
@@ -51,8 +53,10 @@ export function AutocompleteInput({
 
     const searchTerm = inputValue.toLowerCase().trim();
     const filtered = options.filter((option) => {
-      const codeMatch = option.code.toLowerCase().includes(searchTerm);
-      const nameMatch = option.name.toLowerCase().includes(searchTerm);
+      // Defensive normalization keeps the shared input safe while an API response
+      // is being migrated between naming conventions.
+      const codeMatch = String(option.code ?? '').toLowerCase().includes(searchTerm);
+      const nameMatch = String(option.name ?? '').toLowerCase().includes(searchTerm);
       return codeMatch || nameMatch;
     });
 
@@ -80,6 +84,7 @@ export function AutocompleteInput({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputValue(e.target.value);
+    onInputChange?.(e.target.value);
   };
 
   const handleSelect = (option: AutocompleteOption) => {
